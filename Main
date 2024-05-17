@@ -1,0 +1,243 @@
+//****************Made by Klaus Magnus************ */
+
+var ss;
+var ssID;
+var sheetMain;
+var data;
+var tasks;
+var tasksTriggers;
+
+var ARGUMENTS_KEY = "arguments";
+
+//Automatic first time Setup
+function automaticBasics(){
+  getSpreadsheetInfo();
+  myFunction();
+}
+
+function myFunction() {
+  getSpreadsheetInfo()
+}
+
+//This function sends a task email for the first time
+function sendEmail(){
+
+  var body = "Dear Colleague,\n"+"\n"+
+  "This is an automatic email refering to the "+tittleResp+" \n"+
+  "Please provide your comments in the Document. \nDocument's link: "+folderLinkResp+
+  "\nThe target date to finish the assigment process is "+ targetDateResp + "\n\n"+
+  "Best Regards\n"+ leaderResp + "\n\n";
+  //Logger.log(body);
+  GmailApp.sendEmail(mandatoryResp,tittleResp,body);
+}
+
+//This function sends a Task reminder email automatically triggered
+function sendReminderEmailbyLoop(title,folderLink,targetDate,leader){
+  var body = "Dear Colleague,\n"+"\n"+
+  "This is an automatic reminder email refering to the "+title+" Task.\n"+
+  "Please provide your comments in the Document. \nDocument's link: "+folderLink+
+  "\nThe target date to finish the Task process is "+ targetDate + "\n\n"+
+  "Best Regards\n"+ leader + "\n\n" + "AIRBUS AMBER";
+  //Logger.log(body);
+  GmailApp.sendEmail(mandatoryResp,tittleResp,body);
+}
+
+function getSpreadsheetInfo(){
+  //obtaining Spreadsheet ID
+  ssID = SpreadsheetApp.getActiveSpreadsheet().getId();
+  //get Spreadsheet
+  ss = SpreadsheetApp.openById(ssID);
+  //get Main Sheet
+  sheetMain = ss.getSheetByName("Main");
+  //get Task Rows
+  data = sheetMain.getDataRange().getValues();
+
+  //obtains the Task selected rows or null for not selected
+  data.shift();
+  tasks = [];
+  var i = 0;
+  data.forEach(function (row) {
+    if(row[0]){
+      tasks[i] = row;
+      i++;
+      //Logger.log(row);
+    }else{
+      tasks[i] = null;
+      i++;
+      //Logger.log(tasks[i]);
+    }
+  });
+
+  tasksTriggers = [,];
+  
+}
+
+//creates a weekly reminder email
+function createWeeklyTaskLoop() {
+  createTaskLoop(7);
+}
+
+//creates a 3 days reminder email
+function createThreeDailyTaskLoop() {
+  createTaskLoop(3);
+}
+
+//creates a daily reminder email
+function createDailyTaskLoop() {
+  createTaskLoop(1);
+}
+
+//creates the logic for email reminders (basicTask loop)
+//counter = each row in the sheet
+//counter+2 = Row Number
+
+function createTaskLoop(days) {
+  getSpreadsheetInfo();
+  var counter = 0;
+  tasks.forEach(function checkedRow(){
+    if(tasks[counter] != null){
+      // populate the Task properties
+      populateTaskProperties(counter);
+
+      //send email
+      sendTaskEmail()
+
+      //create triger
+      var trigger = ScriptApp.newTrigger("createReminderLoop")
+                  .timeBased()
+                  .everyDays(days)
+                  .atHour(8)
+                  .create().getUniqueId();
+      //save trigger
+      //tasksTriggers[counter] = [counter+2,trigger];
+      setupTriggerArguments(trigger, [tittleResp,folderLinkResp,targetDateResp,leaderResp]);
+      startLiveStatus(counter+2,trigger,days);
+    }
+
+    counter++;
+  });
+}
+
+function createReminderLoop(event){
+  var functionArguments = handleTriggered(event.triggerUid);
+  Logger.log("Function arguments: %s", functionArguments);
+  getActivetasks();
+  var counter = 0;
+  tasks.forEach(function checkedRow(){
+    if(tasks[counter] != null && event.triggerUid == tasks[counter][10]){
+
+    // populate the Task properties
+    populateTaskProperties(counter);
+
+    //send email
+    sendReminderEmailbyLoop(functionArguments[0],functionArguments[1],functionArguments[2],functionArguments[3]);
+    }
+    counter++;
+  });
+}
+
+function getActivetasks(){
+  //obtaining Spreadsheet ID
+  ssID = SpreadsheetApp.getActiveSpreadsheet().getId();
+  //get Spreadsheet
+  ss = SpreadsheetApp.openById(ssID);
+  //get Main Sheet
+  sheetMain = ss.getSheetByName("Main");
+  //get Task Rows
+  data = sheetMain.getDataRange().getValues();
+
+  //obtains the Task selected rows or null for not selected
+  data.shift();
+  tasks = [];
+  var i = 0;
+  data.forEach(function (row) {
+    if(row[8] == "Started"){
+      tasks[i] = row;
+      i++;
+      //Logger.log(row);
+    }else{
+      tasks[i] = null;
+      i++;
+      //Logger.log(tasks[i]);
+    }
+  });
+
+  tasksTriggers = [,];
+}
+
+function deleteTaskLoop() {
+  getSpreadsheetInfo();
+  for(var i = 0; i < tasks.length;i++){
+    if(tasks[i] != null){
+      const allTriggers = ScriptApp.getProjectTriggers();
+      for (let index = 0; index < allTriggers.length; index++) {
+      // If the current trigger is the correct one, delete it.
+        if (allTriggers[index].getUniqueId() === tasks[i][10]) {
+          try{ScriptApp.deleteTrigger(allTriggers[index]);}
+          catch(e) {
+          throw e.message;
+          Logger.log("trigger not deleted")};
+          stopLiveStatus(i+2);
+        }
+      }
+    }
+  }
+}
+
+function populateTaskProperties(counter){
+  tittleResp = tasks[counter][1];
+  mandatoryResp = tasks[counter][2];
+  folderLinkResp = tasks[counter][3];
+  targetDateResp = tasks[counter][4];
+  leaderResp = tasks[counter][5];
+}
+
+function startLiveStatus(counter,trigger,days){
+  sheetMain.getRange(counter,9).setValue("Started");
+  sheetMain.getRange(counter,10).setValue(days);
+  sheetMain.getRange(counter,11).setValue(trigger);
+}
+
+function stopLiveStatus(counter){
+  sheetMain.getRange(counter,9).setValue("Stoped");
+  sheetMain.getRange(counter,10).clear();
+  sheetMain.getRange(counter,11).clear();
+}
+
+function setupTriggerArguments(triggerUid, functionArguments) {
+  var triggerData = {};
+  triggerData[ARGUMENTS_KEY] = functionArguments;
+  PropertiesService.getScriptProperties().setProperty(triggerUid, JSON.stringify(triggerData));
+}
+
+function handleTriggered(triggerUid) {
+  var scriptProperties = PropertiesService.getScriptProperties();
+  var triggerData = JSON.parse(scriptProperties.getProperty(triggerUid));
+  return triggerData[ARGUMENTS_KEY];
+}
+
+function createTaskLoopMinutes() {
+  getSpreadsheetInfo();
+  var counter = 0;
+  tasks.forEach(function checkedRow(){
+    if(tasks[counter] != null){
+      // populate the Task properties
+      populateTaskProperties(counter);
+
+      //send email
+      sendTaskEmail()
+
+      //create triger
+      var trigger = ScriptApp.newTrigger("createReminderLoop")
+                  .timeBased()
+                  .everyMinutes(1)
+                  .create().getUniqueId();
+      //save trigger
+      //tasksTriggers[counter] = [counter+2,trigger];
+      setupTriggerArguments(trigger, [tittleResp,folderLinkResp,targetDateResp,leaderResp]);
+      startLiveStatus(counter+2,trigger,1);
+    }
+
+    counter++;
+  });
+}
